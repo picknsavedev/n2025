@@ -52,7 +52,7 @@ export default function Book() {
       <div className="grid lg:grid-cols-2 gap-8">
         {/* Left: Visual */}
         <div className="card overflow-hidden">
-          <img src="Screenshot (698).png" alt="Garba" className="h-full w-full object-cover" />
+          <img src="/Screenshot (698).png" alt="Garba" className="h-full w-full object-cover" />
         </div>
 
         {/* Right: Form */}
