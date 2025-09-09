@@ -13,7 +13,7 @@ const crypto = require('crypto')
 
 const app = express()
 const PORT = Number(process.env.PORT || 5001)
-const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:3000'
+const FRONTEND = process.env.FRONTEND_URL || 'https://n2025-iota.vercel.app'
 const PRICE_GBP = Number(process.env.TICKET_PRICE_GBP || 12)
 
 const EVENT = {
