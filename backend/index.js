@@ -328,5 +328,5 @@ function makeTicketCode() {
 
 /* -------------------- Start -------------------- */
 app.listen(PORT, ()=> {
-  console.log(`🚀 Backend running on http://localhost:${PORT}`)
+  console.log(`🚀 Backend running on https://n2025.onrender.com`)
 })
