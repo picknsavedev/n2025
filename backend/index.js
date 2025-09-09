@@ -31,28 +31,28 @@ const DAY_LIMITS = {
   '2025-09-28': 130,
 }
 
-
 /* -------------------- Mongo -------------------- */
 mongoose.connect(process.env.MONGODB_URI)
   .then(()=>console.log('✅ MongoDB Atlas connected'))
   .catch(e=>console.error('Mongo error:', e.message))
 
+/* -------------------- Schemas -------------------- */
 const orderSchema = new mongoose.Schema({
   sessionId: { type:String, unique:true },
   name: String,
   email: String,
   phone: String,
   quantity: Number,
-  eventDate: String,   // ISO
+  eventDate: String,
   eventLabel: String,
-  amount: Number,      // GBP
+  amount: Number,
   paid: { type:Boolean, default:false },
   createdAt: { type:Date, default:Date.now }
 })
 
 const ticketSchema = new mongoose.Schema({
-  orderId: String,           // Stripe sessionId
-  code: { type:String, unique:true }, // scanner code (what QR encodes)
+  orderId: String,
+  code: { type:String, unique:true },
   name: String,
   email: String,
   eventDate: String,
@@ -68,7 +68,26 @@ const Ticket = mongoose.model('Ticket', ticketSchema)
 
 /* -------------------- Middleware -------------------- */
 app.use(express.json())
-app.use(cors({ origin: [FRONTEND, 'http://localhost:3000'] }))
+
+// ✅ Updated CORS config
+const allowedOrigins = [
+  'http://localhost:5173',         // Vite local dev
+  'http://localhost:3000',         // CRA dev
+  'https://n2025-iota.vercel.app'  // Vercel deployed frontend
+]
+
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true) // allow Postman/curl
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = `CORS policy: Origin ${origin} not allowed`
+      return callback(new Error(msg), false)
+    }
+    return callback(null, true)
+  },
+  methods: ["GET", "POST", "PUT", "DELETE"],
+  credentials: true
+}))
 
 // quick health
 app.get('/api/health', (req,res)=>{
@@ -82,14 +101,13 @@ app.post('/api/checkout', async (req,res)=>{
     if (!name || !email) return res.status(400).json({ error:'Name and email are required.' })
     if (!EVENT.days[eventDate]) return res.status(400).json({ error:'Please select a valid event day.' })
 
-      // ✅ Ticket limit check
+    // ✅ Ticket limit check
     const sold = await Ticket.countDocuments({ eventDate })
-      if (sold + Number(quantity) > DAY_LIMITS[eventDate]) {
-        return res.status(400).json({
-      error: `Sorry, only ${DAY_LIMITS[eventDate] - sold} tickets left for ${EVENT.days[eventDate]}.`
-    })
-}
-
+    if (sold + Number(quantity) > DAY_LIMITS[eventDate]) {
+      return res.status(400).json({
+        error: `Sorry, only ${DAY_LIMITS[eventDate] - sold} tickets left for ${EVENT.days[eventDate]}.`
+      })
+    }
 
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY)
     const unit_amount = Math.round(PRICE_GBP * 100)
@@ -167,11 +185,8 @@ app.post('/api/issue-ticket', async (req,res)=>{
       tickets = await Ticket.insertMany(docs)
     }
 
-    // email PDF (one page per ticket)
-    await sendTicketEmail({
-      order,
-      tickets
-    })
+    // email PDF
+    await sendTicketEmail({ order, tickets })
 
     order.paid = true
     await order.save()
@@ -184,8 +199,6 @@ app.post('/api/issue-ticket', async (req,res)=>{
 })
 
 /* -------------------- Admin Auth + Scanner APIs -------------------- */
-
-// POST /api/admin/login  { username, password } -> { token }
 app.post('/api/admin/login', (req,res)=>{
   const { username, password } = req.body || {}
   if (username === process.env.ADMIN_USER && password === process.env.ADMIN_PASS){
@@ -202,17 +215,15 @@ function requireAdmin(req,res,next){
   try{
     jwt.verify(token, process.env.ADMIN_JWT_SECRET)
     next()
-  }catch(e){ res.status(401).json({ error:'Invalid token' })}
+  }catch(e){ res.status(401).json({ error:'Invalid token' }) }
 }
 
-// GET /api/admin/ticket/:code -> view status (no mutation)
 app.get('/api/admin/ticket/:code', requireAdmin, async (req,res)=>{
   const t = await Ticket.findOne({ code: req.params.code })
   if (!t) return res.status(404).json({ error:'Ticket not found' })
   res.json({ code:t.code, used:t.used, usedAt:t.usedAt, event:t.eventLabel, name:t.name, email:t.email })
 })
 
-// POST /api/admin/scan { code, markUsed: true/false } -> validate & optionally mark used
 app.post('/api/admin/scan', requireAdmin, async (req,res)=>{
   const { code, markUsed=true, gate } = req.body || {}
   if (!code) return res.status(400).json({ error:'code required' })
@@ -252,11 +263,9 @@ async function createTransporter() {
   return transporter
 }
 
-// nice multi-page PDF (one page per ticket)
 async function sendTicketEmail({ order, tickets }) {
   const title = EVENT.title, time = EVENT.time, venue = EVENT.venue
 
-  // 1) Pre-generate QR PNG buffers (so no async while drawing pages)
   const qrBuffers = await Promise.all(
     tickets.map(async t => {
       const dataURL = await QRCode.toDataURL(`T|${t.code}`, { margin: 1, width: 240 })
@@ -264,7 +273,6 @@ async function sendTicketEmail({ order, tickets }) {
     })
   )
 
-  // 2) Build PDF — draw background, text, and that ticket's QR on the SAME pass
   const doc = new PDFDocument({ size: 'A4', margin: 40 })
   const chunks = []
   doc.on('data', chunks.push.bind(chunks))
@@ -277,10 +285,8 @@ async function sendTicketEmail({ order, tickets }) {
     const pageW = doc.page.width
     const pageH = doc.page.height
 
-    // background (wrapped in save/restore so styles don't leak)
     doc.save().rect(0, 0, pageW, pageH).fill('#fff7ed').restore()
 
-    // headings
     doc.fillColor('#d946ef').fontSize(24).text(title, { align: 'center' })
     doc.moveDown(0.5)
     doc.fillColor('#111').fontSize(13)
@@ -288,14 +294,12 @@ async function sendTicketEmail({ order, tickets }) {
        .text(venue, { align: 'center' })
     doc.moveDown(1)
 
-    // details
     doc.fontSize(14).fillColor('#111')
        .text(`Ticket for: ${t.name}`)
        .text(`Email: ${t.email}`)
        .text(`Order: ${order.sessionId}`)
        .text(`Ticket Code: ${t.code}`)
 
-    // QR (already buffered)
     doc.image(qrBuffers[i], pageW - 300, 180, { width: 200 })
     doc.fontSize(10).fillColor('#6b7280')
        .text('Present this QR at entry. One scan = one entry.',
@@ -319,8 +323,7 @@ async function sendTicketEmail({ order, tickets }) {
 
 /* -------------------- Helpers -------------------- */
 function makeTicketCode() {
-  // short, unique, URL-safe (e.g., 10 chars)
-  return crypto.randomBytes(7).toString('base64url').toUpperCase() // like 'K5X9Q2P7-L'ish
+  return crypto.randomBytes(7).toString('base64url').toUpperCase()
 }
 
 /* -------------------- Start -------------------- */
