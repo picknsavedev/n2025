@@ -33,7 +33,7 @@ export default function Home() {
             </div>
           </div>
           <div className="card">
-            <img src="Home.jpg" alt="Navratri Garba" className="rounded-2xl" />
+            <img src="/Home.jpg" alt="Navratri Garba" className="rounded-2xl" />
           </div>
         </div>
       </section>
