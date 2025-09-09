@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Html5QrcodeScanner } from 'html5-qrcode'
 
-const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001'
+const API = import.meta.env.VITE_API_BASE_URL || 'https://n2025-iota.vercel.app'
 
 export default function Admin() {
   const [stage, setStage] = useState(localStorage.getItem('admin_token') ? 'scan' : 'login')
