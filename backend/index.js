@@ -98,7 +98,7 @@ app.get('/api/health', (req,res)=>{
 app.post('/api/checkout', async (req,res)=>{
   try {
     const { quantity=1, name, email, phone, eventDate } = req.body || {}
-    if (!name || !email) return res.status(400).json({ error:'Name and email are required.' })
+    if (!name || !email || !phone) return res.status(400).json({ error:'Name, email and phone are required.' })
     if (!EVENT.days[eventDate]) return res.status(400).json({ error:'Please select a valid event day.' })
 
     // ✅ Ticket limit check
