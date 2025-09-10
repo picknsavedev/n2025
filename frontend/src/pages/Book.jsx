@@ -25,7 +25,7 @@ export default function Book() {
   const dec = () => setQuantity(q => Math.max(1, q - 1))
 
   const submit = async () => {
-    if (!name.trim() || !email.trim()) return alert("Please enter name and email.")
+    if (!name.trim() || !email.trim() || !phone.trim()) return alert("Please enter name, email and phone.")
     setLoading(true)
     try {
       const res = await axios.post(`${API_BASE}/api/checkout`, {
