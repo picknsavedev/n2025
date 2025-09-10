@@ -95,7 +95,7 @@ export default function Book() {
               <input type="email" className="mt-1 w-full rounded-xl border border-gray-300 p-3" value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com" />
             </div>
             <div className="sm:col-span-2">
-              <label className="block text-sm font-medium">Phone (optional)</label>
+              <label className="block text-sm font-medium">Phone</label>
               <input className="mt-1 w-full rounded-xl border border-gray-300 p-3" value={phone} onChange={e=>setPhone(e.target.value)} placeholder="+44 7..." />
             </div>
           </div>
