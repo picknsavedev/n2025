@@ -12,11 +12,13 @@ export default function Admin() {
   const [manual, setManual] = useState('')
   const [busy, setBusy] = useState(false)
 
-  const [usingFront, setUsingFront] = useState(true) // default to FRONT camera
+  const [usingFront, setUsingFront] = useState(true)
   const [isRunning, setIsRunning] = useState(false)
 
-  const qrRef = useRef(null)       // Html5Qrcode instance
-  const readerId = 'reader'        // div id for camera preview
+  const [scannedTickets, setScannedTickets] = useState([])
+
+  const qrRef = useRef(null)
+  const readerId = 'reader'
 
   useEffect(() => {
     if (stage !== 'scan') return
@@ -29,11 +31,8 @@ export default function Admin() {
   async function startScanner(front) {
     try {
       await stopScanner()
-      if (!qrRef.current) qrRef.current = new Html5Qrcode(readerId, /* verbose= */ false)
+      if (!qrRef.current) qrRef.current = new Html5Qrcode(readerId, false)
 
-      // Ask for specific facing mode
-      // - "user"       => front/selfie camera
-      // - "environment"=> rear/back camera
       const constraints = { facingMode: front ? 'user' : { exact: 'environment' } }
 
       await qrRef.current.start(
@@ -49,7 +48,6 @@ export default function Admin() {
       setIsRunning(true)
       setMsg(front ? 'Using FRONT camera' : 'Using BACK camera')
     } catch (e) {
-      // If exact "environment" fails (e.g., device has only one camera), retry with generic constraint
       if (!usingFront) {
         try {
           const fallback = { facingMode: 'environment' }
@@ -74,15 +72,36 @@ export default function Admin() {
   }
 
   function onScanError() {
-    // ignore noisy scan errors
+    // ignore
   }
 
   async function onScanSuccess(text) {
-    let code = text.trim()
-    if (code.startsWith('T|')) code = code.slice(2)
-    if (!code || code === lastCode) return
-    await validate(code, true)
-    setLastCode(code)
+    setMsg(`Raw scanned QR code: ${text}`)  // Show raw scanned text for debugging
+    let scannedCode = text.trim().toUpperCase()
+    if (!scannedCode || scannedCode === lastCode) return
+
+    // Try validating with full scanned code first
+    let valid = false
+    try {
+      await validate(scannedCode, true)
+      valid = true
+      setLastCode(scannedCode)
+    } catch (e) {
+      // If failed, try stripping "T|" prefix and validate again
+      if (scannedCode.startsWith('T|')) {
+        const strippedCode = scannedCode.slice(2)
+        if (strippedCode && strippedCode !== lastCode) {
+          try {
+            await validate(strippedCode, true)
+            valid = true
+            setLastCode(strippedCode)
+          } catch {}
+        }
+      }
+    }
+    if (!valid) {
+      setMsg('Scan failed: invalid ticket code')
+    }
   }
 
   async function login() {
@@ -126,10 +145,24 @@ export default function Admin() {
       const data = await r.json()
       if (!r.ok) throw new Error(data.error || 'Scan failed')
 
-      if (data.status === 'valid_marked') setMsg(`✅ VALID — marked used · ${data.event}`)
-      else if (data.status === 'already_used') setMsg(`⚠️ ALREADY USED · ${new Date(data.usedAt).toLocaleString()}`)
-      else if (data.status === 'valid') setMsg(`✅ VALID`)
-      else if (data.status === 'not_found') setMsg('❌ NOT FOUND')
+      let statusMsg = ''
+      if (data.status === 'valid_marked') statusMsg = `✅ VALID — marked used · ${data.event}`
+      else if (data.status === 'already_used') statusMsg = `⚠️ ALREADY USED · ${new Date(data.usedAt).toLocaleString()}`
+      else if (data.status === 'valid') statusMsg = `✅ VALID`
+      else if (data.status === 'not_found') statusMsg = '❌ NOT FOUND'
+
+      setMsg(statusMsg)
+
+      // add ticket info to scanned history
+      setScannedTickets(prev => [
+        {
+          code: data.code || code,
+          status: data.status,
+          event: data.event,
+          usedAt: data.usedAt || null
+        },
+        ...prev
+      ])
     } catch (e) {
       setMsg(`Error: ${e.message}`)
     } finally { setBusy(false) }
@@ -160,53 +193,48 @@ export default function Admin() {
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-3xl font-bold">Ticket Scanner</h2>
         <div className="flex items-center gap-2">
-          <button
-            className="px-4 py-2 rounded-xl border"
-            onClick={() => { stopScanner().then(() => startScanner(usingFront)) }}>
-            Refresh
-          </button>
-          <button
-            className="px-4 py-2 rounded-xl border"
-            onClick={() => setUsingFront(v => !v)}>
+          <button className="px-4 py-2 rounded-xl border" onClick={() => { stopScanner().then(() => startScanner(usingFront)) }}>Refresh</button>
+          <button className="px-4 py-2 rounded-xl border" onClick={() => setUsingFront(v => !v)}>
             {usingFront ? 'Use Back Camera' : 'Use Front Camera'}
           </button>
           <button onClick={logout} className="px-4 py-2 rounded-xl border bg-gray-50">Logout</button>
         </div>
       </div>
 
-      <p className="text-gray-600 mb-4">
-        {msg || (usingFront ? 'Using FRONT camera' : 'Using BACK camera')}
-      </p>
+      <p className="text-gray-600 mb-4">{msg || (usingFront ? 'Using FRONT camera' : 'Using BACK camera')}</p>
 
       <div id={readerId} className="rounded-2xl overflow-hidden border" style={{ minHeight: 320 }} />
 
-      <div className="mt-6 grid gap-3 md:grid-cols-2">
-        <div className="p-4 rounded-xl border bg-white/70">
-          <div className="font-semibold mb-1">Status</div>
-          <div className="text-sm">{msg || 'Awaiting scan…'}</div>
+      {/* Manual entry */}
+      <div className="mt-6 p-4 rounded-xl border bg-white/70">
+        <div className="font-semibold mb-2">Manual Entry</div>
+        <div className="flex gap-2">
+          <input
+            className="flex-1 border p-3 rounded-xl"
+            placeholder="Enter ticket code"
+            value={manual}
+            onChange={e => setManual(e.target.value.toUpperCase())}
+          />
+          <button
+            className="bg-primary text-white px-4 py-3 rounded-xl disabled:opacity-60"
+            disabled={busy || !manual.trim()}
+            onClick={() => validate(manual.trim(), true)}
+          >
+            Validate
+          </button>
         </div>
+      </div>
 
-        <div className="p-4 rounded-xl border bg-white/70">
-          <div className="font-semibold mb-2">Manual Entry (fallback)</div>
-          <div className="flex gap-2">
-            <input
-              className="flex-1 border p-3 rounded-xl"
-              placeholder="Enter ticket code"
-              value={manual}
-              onChange={e => setManual(e.target.value.toUpperCase())}
-            />
-            <button
-              className="bg-primary text-white px-4 py-3 rounded-xl disabled:opacity-60"
-              disabled={busy || !manual.trim()}
-              onClick={() => validate(manual.trim(), true)}
-            >
-              Validate
-            </button>
-          </div>
-          <p className="text-xs text-gray-500 mt-2">
-            Tip: The QR encodes <code>T|&lt;code&gt;</code>. You can scan or type just the code.
-          </p>
-        </div>
+      {/* Scanned Tickets History */}
+      <div className="mt-6">
+        <h3 className="font-bold mb-2">Scanned Tickets</h3>
+        <ul className="space-y-2">
+          {scannedTickets.map((t, i) => (
+            <li key={i} className={`p-2 rounded-xl border ${t.status === 'valid_marked' ? 'bg-green-100' : t.status === 'already_used' ? 'bg-red-100' : 'bg-yellow-100'}`}>
+              {t.code} → {t.status} {t.usedAt ? `(at ${new Date(t.usedAt).toLocaleString()})` : ''}
+            </li>
+          ))}
+        </ul>
       </div>
     </section>
   )
